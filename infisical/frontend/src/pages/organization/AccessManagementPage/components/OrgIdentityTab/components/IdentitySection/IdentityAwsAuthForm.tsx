@@ -1,0 +1,392 @@
+import { useEffect, useMemo, useState } from "react";
+import { Controller, useFieldArray, useForm } from "react-hook-form";
+import { faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useParams } from "@tanstack/react-router";
+import { z } from "zod";
+
+import { createNotification } from "@app/components/notifications";
+import {
+  Button,
+  FormControl,
+  IconButton,
+  Input,
+  Tab,
+  TabList,
+  TabPanel,
+  Tabs
+} from "@app/components/v2";
+import { useOrganization, useSubscription } from "@app/context";
+import { SECONDS_PER_DAY } from "@app/helpers/datetime";
+import { accessTokenTtlSchema } from "@app/helpers/identityAuthSchemas";
+import {
+  useAddIdentityAwsAuth,
+  useGetIdentityAwsAuth,
+  useUpdateIdentityAwsAuth
+} from "@app/hooks/api";
+import { IdentityTrustedIp } from "@app/hooks/api/identities/types";
+import { UsePopUpState } from "@app/hooks/usePopUp";
+
+import { IdentityFormTab } from "./types";
+
+const buildSchema = (maxAccessTokenTTL: number) =>
+  z
+    .object({
+      stsEndpoint: z.string(),
+      allowedPrincipalArns: z.string(),
+      allowedAccountIds: z.string(),
+      accessTokenTTL: accessTokenTtlSchema(maxAccessTokenTTL, "Access Token TTL"),
+      accessTokenMaxTTL: accessTokenTtlSchema(maxAccessTokenTTL, "Access Token Max TTL"),
+      accessTokenNumUsesLimit: z.string(),
+      accessTokenTrustedIps: z
+        .object({
+          ipAddress: z.string().max(50)
+        })
+        .array()
+        .min(1)
+    })
+    .required();
+
+export type FormData = z.infer<ReturnType<typeof buildSchema>>;
+
+type Props = {
+  handlePopUpOpen: (
+    popUpName: keyof UsePopUpState<["upgradePlan"]>,
+    data?: { featureName?: string }
+  ) => void;
+  handlePopUpToggle: (
+    popUpName: keyof UsePopUpState<["identityAuthMethod"]>,
+    state?: boolean
+  ) => void;
+  identityId?: string;
+  isUpdate?: boolean;
+  maxAccessTokenTTL: number;
+};
+
+export const IdentityAwsAuthForm = ({
+  handlePopUpOpen,
+  handlePopUpToggle,
+  identityId,
+  isUpdate,
+  maxAccessTokenTTL
+}: Props) => {
+  const { currentOrg } = useOrganization();
+  const orgId = currentOrg?.id || "";
+  const { subscription } = useSubscription();
+  const { projectId } = useParams({
+    strict: false
+  });
+  const { mutateAsync: addMutateAsync } = useAddIdentityAwsAuth();
+  const { mutateAsync: updateMutateAsync } = useUpdateIdentityAwsAuth();
+  const [tabValue, setTabValue] = useState<IdentityFormTab>(IdentityFormTab.Configuration);
+
+  const { data } = useGetIdentityAwsAuth(identityId ?? "", {
+    enabled: isUpdate
+  });
+
+  const resolver = useMemo(() => zodResolver(buildSchema(maxAccessTokenTTL)), [maxAccessTokenTTL]);
+
+  const {
+    control,
+    handleSubmit,
+    reset,
+    formState: { isSubmitting }
+  } = useForm<FormData>({
+    resolver,
+    defaultValues: {
+      stsEndpoint: "https://sts.amazonaws.com/",
+      allowedPrincipalArns: "",
+      allowedAccountIds: "",
+      accessTokenTTL: "2592000",
+      accessTokenMaxTTL: "2592000",
+      accessTokenNumUsesLimit: "",
+      accessTokenTrustedIps: [{ ipAddress: "0.0.0.0/0" }, { ipAddress: "::/0" }]
+    }
+  });
+
+  const {
+    fields: accessTokenTrustedIpsFields,
+    append: appendAccessTokenTrustedIp,
+    remove: removeAccessTokenTrustedIp
+  } = useFieldArray({ control, name: "accessTokenTrustedIps" });
+
+  useEffect(() => {
+    if (data) {
+      reset({
+        stsEndpoint: data.stsEndpoint,
+        allowedPrincipalArns: data.allowedPrincipalArns,
+        allowedAccountIds: data.allowedAccountIds,
+        accessTokenTTL: String(data.accessTokenTTL),
+        accessTokenMaxTTL: String(data.accessTokenMaxTTL),
+        accessTokenNumUsesLimit: data.accessTokenNumUsesLimit
+          ? String(data.accessTokenNumUsesLimit)
+          : "",
+        accessTokenTrustedIps: data.accessTokenTrustedIps.map(
+          ({ ipAddress, prefix }: IdentityTrustedIp) => {
+            return {
+              ipAddress: `${ipAddress}${prefix !== undefined ? `/${prefix}` : ""}`
+            };
+          }
+        )
+      });
+    } else {
+      reset({
+        stsEndpoint: "https://sts.amazonaws.com/",
+        allowedPrincipalArns: "",
+        allowedAccountIds: "",
+        accessTokenTTL: "2592000",
+        accessTokenMaxTTL: "2592000",
+        accessTokenNumUsesLimit: "",
+        accessTokenTrustedIps: [{ ipAddress: "0.0.0.0/0" }, { ipAddress: "::/0" }]
+      });
+    }
+  }, [data]);
+
+  const onFormSubmit = async ({
+    allowedPrincipalArns,
+    allowedAccountIds,
+    stsEndpoint,
+    accessTokenTTL,
+    accessTokenMaxTTL,
+    accessTokenNumUsesLimit,
+    accessTokenTrustedIps
+  }: FormData) => {
+    if (!identityId) return;
+
+    if (data) {
+      await updateMutateAsync({
+        ...(projectId ? { projectId } : { organizationId: orgId }),
+        stsEndpoint,
+        allowedPrincipalArns,
+        allowedAccountIds,
+        identityId,
+        accessTokenTTL: Number(accessTokenTTL),
+        accessTokenMaxTTL: Number(accessTokenMaxTTL),
+        accessTokenNumUsesLimit: Number(accessTokenNumUsesLimit || "0"),
+        accessTokenTrustedIps
+      });
+    } else {
+      await addMutateAsync({
+        ...(projectId ? { projectId } : { organizationId: orgId }),
+        identityId,
+        stsEndpoint: stsEndpoint || "",
+        allowedPrincipalArns: allowedPrincipalArns || "",
+        allowedAccountIds: allowedAccountIds || "",
+        accessTokenTTL: Number(accessTokenTTL),
+        accessTokenMaxTTL: Number(accessTokenMaxTTL),
+        accessTokenNumUsesLimit: Number(accessTokenNumUsesLimit || "0"),
+        accessTokenTrustedIps
+      });
+      handlePopUpToggle("identityAuthMethod", false);
+    }
+    createNotification({
+      text: `Successfully ${isUpdate ? "updated" : "configured"} auth method`,
+      type: "success"
+    });
+
+    reset();
+  };
+
+  return (
+    <form
+      onSubmit={handleSubmit(onFormSubmit, (fields) => {
+        setTabValue(
+          ["accessTokenTrustedIps"].includes(Object.keys(fields)[0])
+            ? IdentityFormTab.Advanced
+            : IdentityFormTab.Configuration
+        );
+      })}
+    >
+      <Tabs value={tabValue} onValueChange={(value) => setTabValue(value as IdentityFormTab)}>
+        <TabList>
+          <Tab value={IdentityFormTab.Configuration}>Configuration</Tab>
+          <Tab value={IdentityFormTab.Advanced}>Advanced</Tab>
+        </TabList>
+        <TabPanel value={IdentityFormTab.Configuration}>
+          <Controller
+            control={control}
+            defaultValue="2592000"
+            name="allowedPrincipalArns"
+            render={({ field, fieldState: { error } }) => (
+              <FormControl
+                label="Allowed Principal ARNs"
+                isError={Boolean(error)}
+                errorText={error?.message}
+              >
+                <Input
+                  {...field}
+                  placeholder="arn:aws:iam::123456789012:role/MyRoleName, arn:aws:iam::123456789012:user/MyUserName..."
+                  type="text"
+                />
+              </FormControl>
+            )}
+          />
+          <Controller
+            control={control}
+            name="allowedAccountIds"
+            render={({ field, fieldState: { error } }) => (
+              <FormControl
+                label="Allowed Account IDs"
+                isError={Boolean(error)}
+                errorText={error?.message}
+              >
+                <Input {...field} placeholder="123456789012, ..." />
+              </FormControl>
+            )}
+          />
+          <Controller
+            control={control}
+            defaultValue="https://sts.amazonaws.com/"
+            name="stsEndpoint"
+            render={({ field, fieldState: { error } }) => (
+              <FormControl label="STS Endpoint" isError={Boolean(error)} errorText={error?.message}>
+                <Input {...field} placeholder="https://sts.amazonaws.com/" type="text" />
+              </FormControl>
+            )}
+          />
+          <Controller
+            control={control}
+            defaultValue="2592000"
+            name="accessTokenTTL"
+            render={({ field, fieldState: { error } }) => (
+              <FormControl
+                label="Access Token TTL (seconds)"
+                isError={Boolean(error)}
+                errorText={error?.message}
+                helperText={`Max: ${Math.floor(maxAccessTokenTTL / SECONDS_PER_DAY)} days`}
+              >
+                <Input {...field} placeholder="2592000" type="number" min="1" step="1" />
+              </FormControl>
+            )}
+          />
+          <Controller
+            control={control}
+            defaultValue="2592000"
+            name="accessTokenMaxTTL"
+            render={({ field, fieldState: { error } }) => (
+              <FormControl
+                label="Access Token Max TTL (seconds)"
+                isError={Boolean(error)}
+                errorText={error?.message}
+                helperText={`Max: ${Math.floor(maxAccessTokenTTL / SECONDS_PER_DAY)} days`}
+              >
+                <Input {...field} placeholder="2592000" type="number" min="1" step="1" />
+              </FormControl>
+            )}
+          />
+          <Controller
+            control={control}
+            defaultValue="0"
+            name="accessTokenNumUsesLimit"
+            render={({ field, fieldState: { error } }) => (
+              <FormControl
+                label="Access Token Max Number of Uses"
+                isError={Boolean(error)}
+                errorText={error?.message}
+                tooltipText="The maximum number of times that an access token can be used; Leave blank for unlimited uses."
+              >
+                <Input {...field} placeholder="Unlimited uses" type="number" min="0" step="1" />
+              </FormControl>
+            )}
+          />
+        </TabPanel>
+        <TabPanel value={IdentityFormTab.Advanced}>
+          {accessTokenTrustedIpsFields.map(({ id }, index) => (
+            <div className="mb-3 flex items-end space-x-2" key={id}>
+              <Controller
+                control={control}
+                name={`accessTokenTrustedIps.${index}.ipAddress`}
+                defaultValue="0.0.0.0/0"
+                render={({ field, fieldState: { error } }) => {
+                  return (
+                    <FormControl
+                      className="mb-0 grow"
+                      label={index === 0 ? "Access Token Trusted IPs" : undefined}
+                      isError={Boolean(error)}
+                      errorText={error?.message}
+                    >
+                      <Input
+                        value={field.value}
+                        onChange={(e) => {
+                          if (subscription?.ipAllowlisting) {
+                            field.onChange(e);
+                            return;
+                          }
+
+                          handlePopUpOpen("upgradePlan", {
+                            featureName: "IP allowlisting"
+                          });
+                        }}
+                        placeholder="123.456.789.0"
+                      />
+                    </FormControl>
+                  );
+                }}
+              />
+              <IconButton
+                onClick={() => {
+                  if (subscription?.ipAllowlisting) {
+                    removeAccessTokenTrustedIp(index);
+                    return;
+                  }
+
+                  handlePopUpOpen("upgradePlan", {
+                    featureName: "IP allowlisting"
+                  });
+                }}
+                size="lg"
+                colorSchema="danger"
+                variant="plain"
+                ariaLabel="update"
+                className="p-3"
+              >
+                <FontAwesomeIcon icon={faXmark} />
+              </IconButton>
+            </div>
+          ))}
+          <div className="my-4 ml-1">
+            <Button
+              variant="outline_bg"
+              onClick={() => {
+                if (subscription?.ipAllowlisting) {
+                  appendAccessTokenTrustedIp({
+                    ipAddress: "0.0.0.0/0"
+                  });
+                  return;
+                }
+
+                handlePopUpOpen("upgradePlan", {
+                  featureName: "IP allowlisting"
+                });
+              }}
+              leftIcon={<FontAwesomeIcon icon={faPlus} />}
+              size="xs"
+            >
+              Add IP Address
+            </Button>
+          </div>
+        </TabPanel>
+      </Tabs>
+      <div className="flex items-center">
+        <Button
+          className="mr-4"
+          size="sm"
+          type="submit"
+          isLoading={isSubmitting}
+          isDisabled={isSubmitting}
+        >
+          {isUpdate ? "Update" : "Add"}
+        </Button>
+
+        <Button
+          colorSchema="secondary"
+          variant="plain"
+          onClick={() => handlePopUpToggle("identityAuthMethod", false)}
+        >
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+};

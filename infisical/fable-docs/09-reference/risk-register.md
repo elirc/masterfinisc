@@ -1,0 +1,20 @@
+# Risk Register
+
+Working-copy assessment, 2026-07-09. Impact/Likelihood: L/M/H. Confidence: how sure we are the risk is real as described (not that it will fire). Nothing here is a confirmed *bug*; treat every row as an investigation lead.
+
+| # | Risk | Evidence / anchors | Impact | Likelihood | Suggested test | Suggested fix | Confidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| R1 | Concurrent create of same shared secret double-writes (check-then-insert race) | read-check at [secret-v2-bridge-service.ts:316-323](../../backend/src/services/secret-v2-bridge/secret-v2-bridge-service.ts); backing unique constraint not confirmed | M | L | parallel-create e2e (two simultaneous POSTs) | partial unique index + mapped constraint error ([critique #1](../03-architecture-and-patterns/06-architecture-critique.md)) | M — constraint may exist in migrations; audit before claiming |
+| R2 | Crash between DB commit and Redis enqueue loses sync jobs | enqueue outside tx ([secret-queue.ts:594-648](../../backend/src/services/secret/secret-queue.ts)) | M | L | kill-process fault injection in dev | instrument counter → outbox only if data justifies (project P1) | H (structural), unknown frequency |
+| R3 | Auth error message text is a de-facto client contract | [request.ts:54-57](../../frontend/src/config/request.ts) matches "token expired"/"stalesession" | H (mass logout) | M (any copy edit) | contract test pinning the string/code | error codes (ticket M1) | H |
+| R4 | Mutation invalidation lists drift as views are added | nine hand-listed families ([mutations.tsx:58-86](../../frontend/src/hooks/api/secrets/mutations.tsx)) | M (stale UI) | M | none cheap; review-checklist control | shared key registry per domain; review rule | H |
+| R5 | Webhook flow lacks e2e coverage | no webhook spec under `e2e-test/` (searched "webhook") | M | M | add e2e (ticket J4) | same | H for the gap itself |
+| R6 | metadataFilter hand parser edge cases (500 vs 400) | 60-line transform, no dedicated unit test ([secret-router.ts:64-120](../../backend/src/server/routes/v4/secret-router.ts)) | L | M | fuzz-ish unit tests (ticket J1) | extract + test | M |
+| R7 | DNS rebinding on stored webhook URLs if not revalidated at send | create-time validation confirmed; send-time path needs audit ([validate-url.ts:171](../../backend/src/lib/validator/validate-url.ts) suggests send-path support exists) | H | L | rebinding simulation in dev | ensure `triggerWebhookRequest` path revalidates (ticket M3) | L — likely already handled; verify |
+| R8 | Replica-lag read-after-write anomalies surface as "random" bugs | replica routing at [lib/knex/index.ts:168](../../backend/src/lib/knex/index.ts) | L–M | M (with replicas enabled) | staleness probe under write load | document; route critical read-backs to primary | H (structural) |
+| R9 | Deprecated auth modes retain privileges quietly | `API_KEY`/`SERVICE_TOKEN` live in [inject-identity.ts:94+](../../backend/src/server/plugins/auth/inject-identity.ts) | M | L | route-audit: no route lists only deprecated modes | telemetry + sunset (project P2) | H |
+| R10 | Wiring god-file merge conflicts slow delivery | 3,606-line [routes/index.ts](../../backend/src/server/routes/index.ts) | L (velocity) | H | measure conflict rate in git history (upstream) | shard wiring by domain ([critique #4](../03-architecture-and-patterns/06-architecture-critique.md)) | H |
+| R11 | Frontend logic (interceptor, hooks) untested | no frontend unit-test setup found | M | M | — | vitest harness (ticket M6/J2) | M — re-verify before asserting to maintainers |
+| R12 | Giant page components degrade render perf and reviewability | 3,759-line [OverviewPage.tsx](../../frontend/src/pages/secret-manager/OverviewPage/OverviewPage.tsx) | L–M | M | React Profiler on large project fixture | incremental extraction (M7) | H |
+
+Use in interviews: R1–R3 are ready-made "what would you improve and how would you de-risk it" answers — each has evidence, a cheap test, and a bounded fix. That triplet *is* the senior answer format.

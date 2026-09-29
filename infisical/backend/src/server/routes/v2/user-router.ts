@@ -1,0 +1,366 @@
+import { z } from "zod";
+
+import { AuthTokenSessionsSchema } from "@app/db/schemas";
+import { readLimit, smtpRateLimit, writeLimit } from "@app/server/config/rateLimiter";
+import { verifyAuth } from "@app/server/plugins/auth/verify-auth";
+import { AuthMethod, AuthMode, MfaMethod } from "@app/services/auth/auth-type";
+import { sanitizedOrganizationSchema } from "@app/services/org/org-schema";
+
+import { SanitizedUserSchema } from "../sanitizedSchemas";
+
+export const registerUserRouter = async (server: FastifyZodProvider) => {
+  server.route({
+    method: "POST",
+    url: "/me/emails/code",
+    config: {
+      rateLimit: smtpRateLimit({
+        keyGenerator: (req) => (req.body as { username?: string })?.username?.trim().substring(0, 100) || req.realIp
+      })
+    },
+    schema: {
+      operationId: "sendEmailVerificationCode",
+      body: z.object({
+        token: z.string().trim()
+      }),
+      response: {
+        200: z.object({})
+      }
+    },
+    handler: async (req) => {
+      await server.services.user.sendEmailVerificationCode(req.body.token);
+      return {};
+    }
+  });
+
+  server.route({
+    method: "PATCH",
+    url: "/me/mfa",
+    config: {
+      rateLimit: writeLimit
+    },
+    schema: {
+      operationId: "updateUserMfa",
+      body: z.object({
+        isMfaEnabled: z.boolean().optional(),
+        selectedMfaMethod: z.nativeEnum(MfaMethod).optional()
+      }),
+      response: {
+        200: z.object({
+          user: SanitizedUserSchema
+        })
+      }
+    },
+    preHandler: verifyAuth([AuthMode.JWT, AuthMode.API_KEY]),
+    handler: async (req) => {
+      const user = await server.services.user.updateUserMfa({
+        userId: req.permission.id,
+        isMfaEnabled: req.body.isMfaEnabled,
+        selectedMfaMethod: req.body.selectedMfaMethod
+      });
+
+      return { user };
+    }
+  });
+
+  server.route({
+    method: "PATCH",
+    url: "/me/name",
+    config: {
+      rateLimit: writeLimit
+    },
+    schema: {
+      operationId: "updateUserName",
+      body: z.object({
+        firstName: z.string().trim(),
+        lastName: z.string().trim()
+      }),
+      response: {
+        200: z.object({
+          user: SanitizedUserSchema
+        })
+      }
+    },
+    preHandler: verifyAuth([AuthMode.JWT, AuthMode.API_KEY]),
+    handler: async (req) => {
+      const user = await server.services.user.updateUserName(req.permission.id, req.body.firstName, req.body.lastName);
+      return { user };
+    }
+  });
+
+  server.route({
+    method: "PUT",
+    url: "/me/auth-methods",
+    config: {
+      rateLimit: writeLimit
+    },
+    schema: {
+      operationId: "updateUserAuthMethods",
+      body: z.object({
+        authMethods: z.nativeEnum(AuthMethod).array().min(1)
+      }),
+      response: {
+        200: z.object({
+          user: SanitizedUserSchema
+        })
+      }
+    },
+    preHandler: verifyAuth([AuthMode.JWT, AuthMode.API_KEY], { requireOrg: false }),
+    handler: async (req) => {
+      const user = await server.services.user.updateAuthMethods(req.permission.id, req.body.authMethods);
+      return { user };
+    }
+  });
+
+  server.route({
+    method: "POST",
+    url: "/me/email-change/otp",
+    config: {
+      rateLimit: smtpRateLimit({
+        keyGenerator: (req) => req.permission.id
+      })
+    },
+    schema: {
+      operationId: "requestEmailChangeOtp",
+      body: z.object({
+        newEmail: z.string().email().trim()
+      }),
+      response: {
+        200: z.object({
+          success: z.boolean(),
+          message: z.string()
+        })
+      }
+    },
+    preHandler: verifyAuth([AuthMode.JWT], { requireOrg: false }),
+    handler: async (req) => {
+      const result = await server.services.user.requestEmailChangeOTP({
+        userId: req.permission.id,
+        newEmail: req.body.newEmail
+      });
+      return result;
+    }
+  });
+
+  server.route({
+    method: "POST",
+    url: "/me/email-change/verify-current",
+    config: {
+      rateLimit: smtpRateLimit({
+        keyGenerator: (req) => req.permission.id
+      })
+    },
+    schema: {
+      operationId: "verifyCurrentEmailOtp",
+      body: z.object({
+        otpCode: z.string().trim().length(6)
+      }),
+      response: {
+        200: z.object({
+          success: z.boolean(),
+          newEmail: z.string()
+        })
+      }
+    },
+    preHandler: verifyAuth([AuthMode.JWT], { requireOrg: false }),
+    handler: async (req) => {
+      const result = await server.services.user.verifyCurrentEmailOTP({
+        userId: req.permission.id,
+        otpCode: req.body.otpCode
+      });
+      return result;
+    }
+  });
+
+  server.route({
+    method: "PATCH",
+    url: "/me/email",
+    config: {
+      rateLimit: writeLimit
+    },
+    schema: {
+      operationId: "updateUserEmail",
+      body: z.object({
+        newEmail: z.string().email().trim(),
+        otpCode: z.string().trim().length(6)
+      }),
+      response: {
+        200: z.object({
+          user: SanitizedUserSchema
+        })
+      }
+    },
+    preHandler: verifyAuth([AuthMode.JWT], { requireOrg: false }),
+    handler: async (req) => {
+      const user = await server.services.user.updateUserEmail({
+        userId: req.permission.id,
+        newEmail: req.body.newEmail,
+        otpCode: req.body.otpCode
+      });
+      return { user };
+    }
+  });
+
+  server.route({
+    method: "GET",
+    url: "/me/organizations",
+    config: {
+      rateLimit: readLimit
+    },
+    schema: {
+      operationId: "listUserOrganizations",
+      description: "Return organizations that current user is part of",
+      response: {
+        200: z.object({
+          organizations: sanitizedOrganizationSchema.array()
+        })
+      }
+    },
+    onRequest: verifyAuth([AuthMode.JWT, AuthMode.API_KEY]),
+    handler: async (req) => {
+      const organizations = await server.services.org.findAllOrganizationOfUser(req.permission.id);
+      return { organizations };
+    }
+  });
+
+  server.route({
+    method: "GET",
+    url: "/me/sessions",
+    config: {
+      rateLimit: readLimit
+    },
+    schema: {
+      operationId: "listUserSessions",
+      response: {
+        200: AuthTokenSessionsSchema.array()
+      }
+    },
+    onRequest: verifyAuth([AuthMode.JWT]),
+    handler: async (req) => {
+      const sessions = await server.services.authToken.getTokenSessionByUser(req.permission.id);
+      return sessions;
+    }
+  });
+
+  server.route({
+    method: "DELETE",
+    url: "/me/sessions",
+    config: {
+      rateLimit: writeLimit
+    },
+    schema: {
+      operationId: "revokeAllUserSessions",
+      response: {
+        200: z.object({
+          message: z.string()
+        })
+      }
+    },
+    onRequest: verifyAuth([AuthMode.JWT]),
+    handler: async (req) => {
+      await server.services.authToken.revokeAllMySessions(req.permission.id);
+      return {
+        message: "Successfully revoked all sessions"
+      };
+    }
+  });
+
+  server.route({
+    method: "DELETE",
+    url: "/me/sessions/:sessionId",
+    config: {
+      rateLimit: writeLimit
+    },
+    schema: {
+      operationId: "revokeUserSession",
+      params: z.object({
+        sessionId: z.string().trim()
+      }),
+      response: {
+        200: z.object({
+          message: z.string()
+        })
+      }
+    },
+    onRequest: verifyAuth([AuthMode.JWT]),
+    handler: async (req) => {
+      await server.services.authToken.revokeMySessionById(req.permission.id, req.params.sessionId);
+      return {
+        message: "Successfully revoked session"
+      };
+    }
+  });
+
+  server.route({
+    method: "GET",
+    url: "/me",
+    config: {
+      rateLimit: readLimit
+    },
+    schema: {
+      operationId: "getCurrentUser",
+      description: "Retrieve the current user on the request",
+      response: {
+        200: z.object({
+          user: z.object({
+            id: z.string().uuid(),
+            email: z.string().nullable().optional(),
+            authMethods: z.string().array().nullable().optional(),
+            superAdmin: z.boolean().default(false).nullable().optional(),
+            firstName: z.string().nullable().optional(),
+            lastName: z.string().nullable().optional(),
+            isAccepted: z.boolean().default(false).nullable().optional(),
+            isMfaEnabled: z.boolean().default(false).nullable().optional(),
+            mfaMethods: z.string().array().nullable().optional(),
+            devices: z.unknown().nullable().optional(),
+            createdAt: z.date(),
+            updatedAt: z.date(),
+            isGhost: z.boolean().default(false),
+            username: z.string(),
+            isEmailVerified: z.boolean().default(false).nullable().optional(),
+            consecutiveFailedMfaAttempts: z.number().default(0).nullable().optional(),
+            isLocked: z.boolean().default(false).nullable().optional(),
+            temporaryLockDateEnd: z.date().nullable().optional(),
+            consecutiveFailedPasswordAttempts: z.number().default(0).nullable().optional(),
+            selectedMfaMethod: z.string().nullable().optional(),
+            isGitHubVerified: z.boolean().nullable().optional(),
+            isGitLabVerified: z.boolean().nullable().optional(),
+            isGoogleVerified: z.boolean().nullable().optional(),
+            encryptedPrivateKey: z.string().nullable().optional(),
+            iv: z.string().nullable().optional(),
+            tag: z.string().nullable().optional(),
+            salt: z.string().nullable().optional(),
+            protectedKey: z.string().nullable().optional(),
+            protectedKeyIV: z.string().nullable().optional(),
+            protectedKeyTag: z.string().nullable().optional()
+          })
+        })
+      }
+    },
+    onRequest: verifyAuth([AuthMode.JWT, AuthMode.API_KEY]),
+    handler: async (req) => {
+      const user = await server.services.user.getMe(req.permission.id);
+      return { user };
+    }
+  });
+
+  server.route({
+    method: "DELETE",
+    url: "/me",
+    config: {
+      rateLimit: writeLimit
+    },
+    schema: {
+      operationId: "deleteUser",
+      response: {
+        200: z.object({
+          user: SanitizedUserSchema
+        })
+      }
+    },
+    onRequest: verifyAuth([AuthMode.JWT]),
+    handler: async (req) => {
+      const user = await server.services.user.deleteUser(req.permission.id);
+      return { user };
+    }
+  });
+};
