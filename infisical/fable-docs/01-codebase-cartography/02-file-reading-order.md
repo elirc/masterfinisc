@@ -38,7 +38,7 @@
 | # | File | Why / look for |
 | --- | --- | --- |
 | 22 | [backend/src/server/routes/index.ts](../../backend/src/server/routes/index.ts) L538+, L3291, L3572–3591 | The whole DI graph; `decorate("services")`; EE-before-community registration order |
-| 23 | [backend/src/db/migrations/](../../backend/src/db/migrations/) (skim newest 5 of 424) | Migration style: additive, index-adding, backfills as separate migrations |
+| 23 | [backend/src/db/migrations/](../../backend/src/db/migrations/) (skim newest 5 of 423) | Migration style: additive, index-adding, backfills as separate migrations |
 | 24 | [backend/src/queue/queue-service.ts](../../backend/src/queue/queue-service.ts) | The BullMQ wrapper all `*-queue.ts` files use |
 | 25 | [frontend/src/hooks/api/reactQuery.tsx](../../frontend/src/hooks/api/reactQuery.tsx) L220–226 | Global defaults: `staleTime: 60_000`, `refetchOnWindowFocus: false`, `retry: 1` — and why some queries override to `staleTime: 0` |
 | 26 | [frontend/src/pages/secret-manager/OverviewPage/OverviewPage.tsx](../../frontend/src/pages/secret-manager/OverviewPage/OverviewPage.tsx) (3,759 lines — skim L290–600) | A giant real page: permission hook at L300, data hook at L567; ask "how would I split this?" |

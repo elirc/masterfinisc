@@ -2,7 +2,7 @@
 
 ## The shape of the data
 
-PostgreSQL, 272 tables (count of generated schema files in [backend/src/db/schemas/](../../backend/src/db/schemas/)), 424 migrations. Core entity spine for the secrets product:
+PostgreSQL, roughly 270 tables (272 generated schema files in [backend/src/db/schemas/](../../backend/src/db/schemas/), two of which are `index.ts` and `models.ts`), 423 migrations. Core entity spine for the secrets product:
 
 ```text
 Organization ─< Project ─< Environment ─< Folder (tree) ─< Secret ─< SecretVersion

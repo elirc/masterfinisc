@@ -44,7 +44,7 @@
 ## Facts verified directly (see [verification-log](verification-log.md))
 
 - `min-release-age=7` in both `.npmrc` files (read the files)
-- 424 migration files; 272 schema files; 27 backend unit-test files (counted)
+- 423 migration files (plus the `migrations/utils/` helpers); 272 schema files; 27 backend unit-test files (counted)
 - Line anchors throughout the curriculum (grep/sed against this working copy, 2026-07-09)
 
 ## Useful inspection one-liners (safe, read-only)

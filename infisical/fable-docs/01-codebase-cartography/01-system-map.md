@@ -11,7 +11,7 @@ infisical/
 │       ├── server/   HTTP layer: plugins (auth), routes v1–v4, config
 │       ├── services/ 100+ service modules: dal + service + types (+ queue, fns)
 │       ├── ee/       Enterprise: permission engine, audit logs, EE routes/services
-│       ├── db/       knexfile, 424 migrations, generated Zod schemas (272 tables)
+│       ├── db/       knexfile, 423 migrations, generated Zod schemas (272 files)
 │       ├── lib/      shared: knex/ormify, errors, validator (SSRF), logger, crypto
 │       ├── queue/    BullMQ queue service wrapper
 │       └── keystore/ Redis-backed key-value + locks
@@ -38,7 +38,7 @@ infisical/
 | AuthZ (what may you do) | `backend/src/ee/services/permission/` | [permission-service.ts:405](../../backend/src/ee/services/permission/permission-service.ts) |
 | Business logic | `backend/src/services/<domain>/<domain>-service.ts` | [secret-v2-bridge-service.ts](../../backend/src/services/secret-v2-bridge/secret-v2-bridge-service.ts) |
 | Data access | `backend/src/services/<domain>/<domain>-dal.ts` over [ormify](../../backend/src/lib/knex/index.ts) | [secret-dal.ts](../../backend/src/services/secret/secret-dal.ts) |
-| Schema & migrations | `backend/src/db/migrations/` (424 files), generated Zod in `db/schemas/` | `npm run migration:new`, `npm run generate:schema` |
+| Schema & migrations | `backend/src/db/migrations/` (423 migrations + `utils/`), generated Zod in `db/schemas/` | `npm run migration:new`, `npm run generate:schema` |
 | Async jobs | `backend/src/services/<domain>/<domain>-queue.ts` via `backend/src/queue/` | [secret-queue.ts](../../backend/src/services/secret/secret-queue.ts) |
 | UI routes | [frontend/src/routes.ts](../../frontend/src/routes.ts) (virtual DSL) | secret-manager routes at lines 19-40 |
 | Server state (UI) | `frontend/src/hooks/api/<domain>/` | [secrets/queries.tsx:33-58](../../frontend/src/hooks/api/secrets/queries.tsx) |
